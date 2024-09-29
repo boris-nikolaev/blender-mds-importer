@@ -1,7 +1,7 @@
 bl_info = {
     "name": "DQ8 MDS Importer",
     "author": "Boris Nikolaev",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (3, 6, 0),
     "location": "File > Import-Export",
     "description": "Import MDS Meshes and UV's from Dragon Quest 8",
@@ -17,7 +17,7 @@ from bpy.types import Operator
 from . import mds_import
 
 class ImportDQ8MDS(Operator, ImportHelper):
-    bl_idname = "mds_format.import"
+    bl_idname = "mds_format.import_mds"
     bl_label = "Import MDS"
 
     filename_ext = ".mds"

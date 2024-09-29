@@ -42,17 +42,20 @@ def import_model(file_path):
 
         # read materials
         material_block_offset = unk_struct_offset + (mds_header.unk_struct_size * mds_header.unk_struct_count)
-        material_block = data[material_block_offset : material_block_offset + mds_header.material_block_size - 1]
-        material_block = material_block.replace(b'\x00', b' ')
-        decoded_string = material_block.decode('ascii')
-        decoded_string = re.sub(r'\s+', ' ', decoded_string)
-        decoded_string = decoded_string.split("Default ")[1]
+        try:
+            material_block = data[material_block_offset : material_block_offset + mds_header.material_block_size - 1]
+            material_block = material_block.replace(b'\x00', b' ')
+            decoded_string = material_block.decode(encoding='utf-8', errors='replace')
+            decoded_string = re.sub(r'\s+', ' ', decoded_string)
+            decoded_string = decoded_string.split("Default ")[1]
 
-        mat_split = decoded_string.split(' ')
-        for index in range(0, len(mat_split) - 1, 2):
-            mat_name = mat_split[index]
-            tex_name = mat_split[index + 1]
-            model.materials.append([mat_name, tex_name])
+            mat_split = decoded_string.split(' ')
+            for index in range(0, len(mat_split) - 1, 2):
+                mat_name = mat_split[index]
+                tex_name = mat_split[index + 1]
+                model.materials.append([mat_name, tex_name])
+        except:
+            print("There was a problem when reading material block")
 
         # read mdt
         mdt_offset = material_block_offset + mds_header.material_block_size
@@ -156,53 +159,56 @@ def import_model(file_path):
 
                 submesh.material_index = int.from_bytes(data[current_group_offset + 32 : current_group_offset + 36], byteorder='little') - 1
 
-                uv_offset_shift = 36 if group_header.header_size > 32 else 20
-                uv_offset = int.from_bytes(data[current_group_offset + uv_offset_shift : current_group_offset + uv_offset_shift + 4], byteorder='little')
-                uv_triangle_index_offset = current_group_offset + int(uv_offset)
-                curret_uv_triangle_offset = uv_triangle_index_offset
-                if group_header.read_mode == 3:
-                    for i in range(int(group_header.index_count / 3)):
-                        indices = ShortVector3.from_buffer_copy(data, curret_uv_triangle_offset)
-                        curret_uv_triangle_offset += ShortVector3.size()
-                        face = [indices.x, indices.y, indices.z]
+                try:
+                    uv_offset_shift = 36 if group_header.header_size > 32 else 20
+                    uv_offset = int.from_bytes(data[current_group_offset + uv_offset_shift : current_group_offset + uv_offset_shift + 4], byteorder='little')
+                    uv_triangle_index_offset = current_group_offset + int(uv_offset)
+                    curret_uv_triangle_offset = uv_triangle_index_offset
+                    if group_header.read_mode == 3:
+                        for i in range(int(group_header.index_count / 3)):
+                            indices = ShortVector3.from_buffer_copy(data, curret_uv_triangle_offset)
+                            curret_uv_triangle_offset += ShortVector3.size()
+                            face = [indices.x, indices.y, indices.z]
 
-                        new_triangle = []
-                        for index in face:
-                            if index not in texco_index_map:
-                                texco_index_map[index] = len(submesh.uv_vertices)
-                                submesh.uv_vertices.append(mesh.uv_vertices[index])
-                            new_triangle.append(texco_index_map[index])
-                        submesh.uv_triangles.append(new_triangle)
+                            new_triangle = []
+                            for index in face:
+                                if index not in texco_index_map:
+                                    texco_index_map[index] = len(submesh.uv_vertices)
+                                    submesh.uv_vertices.append(mesh.uv_vertices[index])
+                                new_triangle.append(texco_index_map[index])
+                            submesh.uv_triangles.append(new_triangle)
 
-                elif group_header.read_mode == 4:
-                    inverse = False
-                    read_count = 0
-                    while read_count < group_header.index_count - 2:
-                        indices = ShortVector3.from_buffer_copy(data, curret_uv_triangle_offset)
-                        curret_uv_triangle_offset += ShortVector3.size()
+                    elif group_header.read_mode == 4:
+                        inverse = False
+                        read_count = 0
+                        while read_count < group_header.index_count - 2:
+                            indices = ShortVector3.from_buffer_copy(data, curret_uv_triangle_offset)
+                            curret_uv_triangle_offset += ShortVector3.size()
 
-                        if read_count in skipped_indices:
+                            if read_count in skipped_indices:
+                                curret_uv_triangle_offset -= 4
+                                inverse = not inverse
+                                read_count += 1
+                                continue
+
+                            indices_a = indices.x if not inverse else indices.y
+                            indices_b = indices.y if not inverse else indices.x
+
+                            face = [int(indices_a), int(indices_b), int(indices.z)]
+
+                            new_triangle = []
+                            for index in face:
+                                if index not in texco_index_map:
+                                    texco_index_map[index] = len(submesh.uv_vertices)
+                                    submesh.uv_vertices.append(mesh.uv_vertices[index])
+                                new_triangle.append(texco_index_map[index])
+                            submesh.uv_triangles.append(new_triangle)
+
                             curret_uv_triangle_offset -= 4
                             inverse = not inverse
                             read_count += 1
-                            continue
-
-                        indices_a = indices.x if not inverse else indices.y
-                        indices_b = indices.y if not inverse else indices.x
-
-                        face = [int(indices_a), int(indices_b), int(indices.z)]
-
-                        new_triangle = []
-                        for index in face:
-                            if index not in texco_index_map:
-                                texco_index_map[index] = len(submesh.uv_vertices)
-                                submesh.uv_vertices.append(mesh.uv_vertices[index])
-                            new_triangle.append(texco_index_map[index])
-                        submesh.uv_triangles.append(new_triangle)
-
-                        curret_uv_triangle_offset -= 4
-                        inverse = not inverse
-                        read_count += 1
+                except Exception as e:
+                    print(e)
 
                 current_group_offset += group_header.next_offset
                 mesh.submeshes.append(submesh)
@@ -222,12 +228,15 @@ def import_model(file_path):
                 mesh.from_pydata(submesh.vertices, [], submesh.triangles)
                 mesh.update()
 
-                mesh.uv_layers.new(name="UVMap")
-                uv_layer = mesh.uv_layers.active.data
-                for poly in mesh.polygons:
-                    for loop_idx in poly.loop_indices:
-                        uv_idx = submesh.uv_triangles[poly.index][poly.loop_indices.index(loop_idx)]
-                        uv_layer[loop_idx].uv = submesh.uv_vertices[uv_idx]
+                try:
+                    mesh.uv_layers.new(name="UVMap")
+                    uv_layer = mesh.uv_layers.active.data
+                    for poly in mesh.polygons:
+                        for loop_idx in poly.loop_indices:
+                            uv_idx = submesh.uv_triangles[poly.index][poly.loop_indices.index(loop_idx)]
+                            uv_layer[loop_idx].uv = submesh.uv_vertices[uv_idx]
+                except Exception as e:
+                    print("There was a problem when reading UV")
 
                 mesh.update()
 
@@ -235,17 +244,20 @@ def import_model(file_path):
                 mesh_obj.location = (0.0, 0.0, 0.0)
                 mesh_obj.parent = root
 
-                if submesh.material_index < len(model.materials):
-                    texture = model.materials[submesh.material_index][1]
-                    if texture in created_materials:
-                        material = created_materials[texture]
-                    else:
-                        material = bpy.data.materials.new(name=model.materials[submesh.material_index][1])
-                        material.use_nodes = True
-                        material.diffuse_color = (random.random(), random.random(), random.random(), 1)
-                        created_materials[texture] = material
+                try:
+                    if submesh.material_index < len(model.materials):
+                        texture = model.materials[submesh.material_index][1]
+                        if texture in created_materials:
+                            material = created_materials[texture]
+                        else:
+                            material = bpy.data.materials.new(name=model.materials[submesh.material_index][1])
+                            material.use_nodes = True
+                            material.diffuse_color = (random.random(), random.random(), random.random(), 1)
+                            created_materials[texture] = material
 
-                    mesh_obj.data.materials.append(material)
+                        mesh_obj.data.materials.append(material)
+                except Exception as e:
+                    print("There was a problem when reading materials")
 
                 bpy.context.collection.objects.link(mesh_obj)
         
